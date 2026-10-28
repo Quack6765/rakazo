@@ -9,13 +9,13 @@ import type {
 import {
   bindComposerMention,
   clampMentionHighlightIndex,
-  composerMentionDeletionRange,
   composerMentionQuery,
   composerMentionsForPrompt,
   composerSelectedMentions,
   mentionChipKey,
   newClientId,
   replyAttachment,
+  resolveComposerMentionEdit,
   resolveMentionPickerKey,
   SLASH_ACTIONS,
   serializeComposerPrompt,
@@ -24,7 +24,7 @@ import {
 } from "@rakazo/core";
 import { Button } from "@rakazo/ui-web";
 import { ArrowUp, Box, Paperclip, Plus, Settings, Square, X } from "lucide-react";
-import type { ClipboardEvent, DragEvent, KeyboardEvent, RefObject } from "react";
+import type { ClipboardEvent, DragEvent, RefObject } from "react";
 import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   HoldToTalkControls,
@@ -303,16 +303,37 @@ export const Composer = memo(function Composer({
 
   const knownMentions = [...(mentionTargets ?? []), ...selectedMentions];
 
-  function updateDraft(value: string, caret = value.length, end = caret) {
+  function updateDraft(
+    nativeValue: string,
+    nativeCaret = nativeValue.length,
+    nativeEnd = nativeCaret,
+    composing = false,
+  ) {
     markEdited();
     const current = compositionRef.current;
-    const bindings = updateComposerMentionBindings(current.text, value, current.bindings, {
+    const hints = {
       before: editSelections.current,
-      after: { start: caret, end },
-    });
-    commitComposition({ text: value, bindings });
+      after: { start: nativeCaret, end: nativeEnd },
+    };
+    const edit = composing
+      ? {
+          text: nativeValue,
+          bindings: updateComposerMentionBindings(
+            current.text,
+            nativeValue,
+            current.bindings,
+            hints,
+          ),
+          caret: null,
+        }
+      : resolveComposerMentionEdit(current.text, nativeValue, current.bindings, hints);
+    const value = edit.text;
+    const caret = edit.caret ?? nativeCaret;
+    const end = edit.caret ?? nativeEnd;
+    if (edit.caret !== null) pendingCaret.current = { start: caret, end };
+    commitComposition({ text: value, bindings: edit.bindings });
     setMentionQuery(
-      composerMentionQuery(value, caret, end, knownMentions, bindings)?.query ?? null,
+      composerMentionQuery(value, caret, end, knownMentions, edit.bindings)?.query ?? null,
     );
     // `/` only at the start of the draft so forced skills expand (`Use skill:` / `/Name` prefix).
     const slashMatch = selectedSkill === null ? /^\/([^\n]*)$/.exec(value) : null;
@@ -358,21 +379,6 @@ export const Composer = memo(function Composer({
   function removeSkill() {
     markEdited();
     setSelectedSkill(null);
-  }
-
-  function widenMentionDeletion(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key !== "Backspace" && event.key !== "Delete") return;
-    if (event.nativeEvent.isComposing) return;
-    const field = event.currentTarget;
-    const { selectionStart: start, selectionEnd: end } = field;
-    const range =
-      start !== end
-        ? { start, end }
-        : event.key === "Backspace"
-          ? { start: start - 1, end }
-          : { start, end: end + 1 };
-    const mention = composerMentionDeletionRange(mentionBindings, range);
-    if (mention) field.setSelectionRange(mention.start, mention.end);
   }
 
   const mentionOptions = useMemo(() => {
@@ -837,6 +843,7 @@ export const Composer = memo(function Composer({
                   event.target.value,
                   event.target.selectionStart,
                   event.target.selectionEnd,
+                  (event.nativeEvent as InputEvent).isComposing,
                 );
               }}
               onBeforeInput={(event) => rememberSelection(event.currentTarget)}
@@ -862,13 +869,12 @@ export const Composer = memo(function Composer({
               }}
               onPaste={handlePaste}
               onKeyDown={(event) => {
+                rememberSelection(event.currentTarget);
                 if (event.key === "Backspace" && draft.length === 0 && selectedSkill !== null) {
                   event.preventDefault();
                   removeSkill();
                   return;
                 }
-                widenMentionDeletion(event);
-                rememberSelection(event.currentTarget);
                 const action = resolveMentionPickerKey({
                   key: event.key,
                   shiftKey: event.shiftKey,
