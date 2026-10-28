@@ -56,7 +56,11 @@ test("mention picker completes with Enter and Tab", async ({ page }, testInfo) =
   await expect(composer).toHaveAttribute("aria-expanded", "false");
   await captureScreenshot(page, testInfo, "mention-picker-keyboard-completed");
 
-  await page.getByRole("button", { name: "Remove mention Research Writer" }).click();
+  await expect(composer).toHaveValue("@Research Writer ");
+  await composer.press("Backspace");
+  await composer.press("Backspace");
+  await expect(composer).toHaveValue("");
+  await expect(page.getByTestId("mention-chip")).toHaveCount(0);
   await composer.fill("@Res");
   await expect(page.getByTestId("mention-picker")).toBeVisible();
   await composer.press("Tab");
@@ -64,7 +68,6 @@ test("mention picker completes with Enter and Tab", async ({ page }, testInfo) =
   await expect(page.getByTestId("mention-chip").filter({ hasText: "Researcher" })).toBeVisible();
   await expect(composer).toBeFocused();
 
-  await page.getByRole("button", { name: "Remove mention Researcher" }).click();
   await composer.fill("@Res");
   await expect(page.getByTestId("mention-picker")).toBeVisible();
   await composer.press("Escape");
