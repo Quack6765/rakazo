@@ -106,7 +106,7 @@ function renderMessage(
   return { mention, onOpenBot };
 }
 
-it("keeps a received peer marker at the start while user replies align to the end", () => {
+it("keeps a received peer marker off the user's side while user replies align to the end", () => {
   renderView("user", [
     { kind: "bot_message_received", fromBotId: "peer", fromBotName: "Atlas", text: "Done." },
   ]);
